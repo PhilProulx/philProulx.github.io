@@ -66,19 +66,42 @@
             window.location.href = authUrl;
         }
 
+        function loadSongs() {
+            const storedSongs = JSON.parse(localStorage.getItem('songs')) || [];
+            storedSongs.forEach(song => addSongToTable(song));
+        }
+
+        function saveSongs(songs) {
+            localStorage.setItem('songs', JSON.stringify(songs));
+        }
+
+        function getStoredSongs() {
+            return JSON.parse(localStorage.getItem('songs')) || [];
+        }
+
         function addSong() {
             const songID = document.getElementById('songID').value;
             const songName = document.getElementById('songName').value;
             const timeStart = document.getElementById('timeStart').value;
             const duration = document.getElementById('duration').value;
 
+            const song = { songID, songName, timeStart, duration };
+            const songs = getStoredSongs();
+            songs.push(song);
+            saveSongs(songs);
+
+            addSongToTable(song);
+            document.getElementById('songForm').reset();
+        }
+
+        function addSongToTable(song) {
             const table = document.getElementById('songTable').getElementsByTagName('tbody')[0];
             const newRow = table.insertRow();
 
-            newRow.insertCell(0).textContent = songID;
-            newRow.insertCell(1).textContent = songName;
-            newRow.insertCell(2).textContent = timeStart;
-            newRow.insertCell(3).textContent = duration;
+            newRow.insertCell(0).textContent = song.songID;
+            newRow.insertCell(1).textContent = song.songName;
+            newRow.insertCell(2).textContent = song.timeStart;
+            newRow.insertCell(3).textContent = song.duration;
 
             const actionsCell = newRow.insertCell(4);
             const editButton = document.createElement('button');
@@ -90,13 +113,16 @@
             deleteButton.textContent = 'Delete';
             deleteButton.onclick = function() { deleteSong(newRow); };
             actionsCell.appendChild(deleteButton);
-
-            document.getElementById('songForm').reset();
         }
 
         function deleteSong(row) {
             const table = document.getElementById('songTable').getElementsByTagName('tbody')[0];
+            const songID = row.getElementsByTagName('td')[0].textContent;
             table.deleteRow(row.rowIndex - 1);
+
+            let songs = getStoredSongs();
+            songs = songs.filter(song => song.songID !== songID);
+            saveSongs(songs);
         }
 
         function editSong(row) {
@@ -110,23 +136,8 @@
         }
 
         function playSongs() {
-            const table = document.getElementById('songTable').getElementsByTagName('tbody')[0];
-            const rows = table.getElementsByTagName('tr');
-            let playlist = [];
-
-            for (let row of rows) {
-                const cells = row.getElementsByTagName('td');
-                playlist.push({
-                    songID: cells[0].textContent,
-                    songName: cells[1].textContent,
-                    timeStart: parseInt(cells[2].textContent, 10),
-                    duration: parseInt(cells[3].textContent, 10),
-                });
-            }
-
-            playlist.forEach(song => {
-                playTrack(song.songID, song.timeStart, song.duration);
-            });
+            const songs = getStoredSongs();
+            songs.forEach(song => playTrack(song.songID, song.timeStart, song.duration));
         }
 
         function playTrack(songID, timeStart, duration) {
@@ -196,6 +207,10 @@
                 }
             }
         }
+
+        window.onload = function() {
+            loadSongs();
+        };
     </script>
 </body>
 </html>
