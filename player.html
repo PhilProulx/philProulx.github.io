@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Song List</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <h1>Song List</h1>
+    <form id="songForm">
+        <label for="songID">Song ID:</label>
+        <input type="text" id="songID" name="songID" maxlength="60" required>
+        <label for="songName">Song Name:</label>
+        <input type="text" id="songName" name="songName" required>
+        <label for="timeStart">Time Start:</label>
+        <input type="number" id="timeStart" name="timeStart" required>
+        <label for="duration">Duration:</label>
+        <input type="number" id="duration" name="duration" required>
+        <button type="submit">Add Song</button>
+    </form>
+
+    <table id="songTable">
+        <thead>
+            <tr>
+                <th>Song ID</th>
+                <th>Song Name</th>
+                <th>Time Start</th>
+                <th>Duration</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+
+    <button onclick="playSongs()">Play</button>
+    <button onclick="authorize()">Generate Token</button>
+
+    <div id="accessToken"></div>
+    <div id="errorMessage"></div>
+
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+    <script>
+        document.getElementById('songForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+            addSong();
+        });
+
+        const clientId = '4fbe65ccbc254973b4098aa107399f59';
+        const redirectUri = 'https://demo.fidelio.ca/fr';
+        const clientSecret = '4d6cdfe413bc49deb572e8587fb7671d';
+
+        function authorize() {
+            const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user-read-playback-state user-modify-playback-state`;
+            window.location.href = authUrl;
+        }
+
+        function addSong() {
+            const songID = document.getElementById('songID').value;
+            const songName = document.getElementById('songName').value;
+            const timeStart = document.getElementById('timeStart').value;
+            const duration = document.getElementById('duration').value;
+
+            const table = document.getElementById('songTable').getElementsByTagName('tbody')[0];
+            const newRow = table.insertRow();
+
+            newRow.insertCell(0).textContent = songID;
+            newRow.insertCell(1).textContent = songName;
+            newRow.insertCell(2).textContent = timeStart;
+            newRow.insertCell(3).textContent = duration;
+
+            const actionsCell = newRow.insertCell(4);
+            const editButton = document.createElement('button');
+            editButton.textContent = 'Edit';
+            editButton.onclick = function() { editSong(newRow); };
+            actionsCell.appendChild(editButton);
+
+            const deleteButton = document.createElement('button');
+            deleteButton.textContent = 'Delete';
+            deleteButton.onclick = function() { deleteSong(newRow); };
+            actionsCell.appendChild(deleteButton);
+
+            document.getElementById('songForm').reset();
+        }
+
+        function deleteSong(row) {
+            const table = document.getElementById('songTable').getElementsByTagName('tbody')[0];
+            table.deleteRow(row.rowIndex - 1);
+        }
+
+        function editSong(row) {
+            const cells = row.getElementsByTagName('td');
+            document.getElementById('songID').value = cells[0].textContent;
+            document.getElementById('songName').value = cells[1].textContent;
+            document.getElementById('timeStart').value = cells[2].textContent;
+            document.getElementById('duration').value = cells[3].textContent;
+
+            deleteSong(row);
+        }
+
+        function playSongs() {
+            const table = document.getElementById('songTable').getElementsByTagName('tbody')[0];
+            const rows = table.getElementsByTagName('tr');
+            let playlist = [];
+
+            for (let row of rows) {
+                const cells = row.getElementsByTagName('td');
+                playlist.push({
+                    songID: cells[0].textContent,
+                    songName: cells[1].textContent,
+                    timeStart: parseInt(cells[2].textContent, 10),
+                    duration: parseInt(cells[3].textContent, 10),
+                });
+            }
+
+            playlist.forEach(song => {
+                playTrack(song.songID, song.timeStart, song.duration);
+            });
+        }
+
+        function playTrack(songID, timeStart, duration) {
+            const spotifyUri = `spotify:track:${songID}`;
+
+            player.play({
+                uris: [spotifyUri],
+                position_ms: timeStart
+            });
+
+            setTimeout(() => {
+                player.pause();
+            }, duration);
+        }
+
+        window.onSpotifyWebPlaybackSDKReady = () => {
+            let player;
+
+            async function initializePlayer() {
+                const token = await getAccessToken();
+                player = new Spotify.Player({
+                    name: 'Web Playback SDK Quick Start Player',
+                    getOAuthToken: cb => { cb(token); },
+                    volume: 0.5
+                });
+
+                player.addListener('ready', ({ device_id }) => {
+                    console.log('Ready with Device ID', device_id);
+                });
+
+                player.addListener('not_ready', ({ device_id }) => {
+                    console.log('Device ID has gone offline', device_id);
+                });
+
+                player.connect();
+            }
+
+            initializePlayer();
+        };
+
+        async function getAccessToken() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+
+            if (code) {
+                try {
+                    const response = await fetch('https://accounts.spotify.com/api/token', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        body: `grant_type=authorization_code&code=${code}&redirect_uri=${encodeURIComponent(redirectUri)}&client_id=${clientId}&client_secret=${clientSecret}`
+                    });
+
+                    const data = await response.json();
+                    if (response.ok) {
+                        document.getElementById('accessToken').textContent = `Access Token: ${data.access_token}`;
+                        document.getElementById('errorMessage').textContent = '';
+                        return data.access_token;
+                    } else {
+                        document.getElementById('errorMessage').textContent = `Error: ${data.error_description}`;
+                        document.getElementById('accessToken').textContent = '';
+                    }
+                } catch (error) {
+                    document.getElementById('errorMessage').textContent = `Error: ${error.message}`;
+                    document.getElementById('accessToken').textContent = '';
+                }
+            }
+        }
+    </script>
+</body>
+</html>
