@@ -23,9 +23,9 @@
         <input type="text" id="songID" name="songID" maxlength="60" required>
         <label for="songName">Song Name:</label>
         <input type="text" id="songName" name="songName" required>
-        <label for="timeStart">Time Start:</label>
+        <label for="timeStart">Time Start (ms):</label>
         <input type="number" id="timeStart" name="timeStart" required>
-        <label for="duration">Duration:</label>
+        <label for="duration">Duration (ms):</label>
         <input type="number" id="duration" name="duration" required>
         <button type="submit">Add Song</button>
     </form>
@@ -60,6 +60,8 @@
         const clientId = '4fbe65ccbc254973b4098aa107399f59';
         const redirectUri = 'https://philproulx.github.io/player.html';
         const clientSecret = '4d6cdfe413bc49deb572e8587fb7671d';
+        let accessToken = '';
+        let player;
 
         function authorize() {
             const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user-read-playback-state user-modify-playback-state`;
@@ -135,82 +137,119 @@
             deleteSong(row);
         }
 
-        function playSongs() {
+        async function playSongs() {
+            alert("Play button pressed");
+            console.log("Play button pressed");
+
+            if (!accessToken) {
+                accessToken = await getAccessToken();
+                if (!accessToken) {
+                    alert("Access token not available");
+                    console.log("Access token not available");
+                    return;
+                }
+            }
+
             const songs = getStoredSongs();
+            if (songs.length === 0) {
+                alert("No songs to play");
+                console.log("No songs to play");
+                return;
+            }
+
+            alert("Starting to play songs");
+            console.log("Starting to play songs");
             songs.forEach(song => playTrack(song.songID, song.timeStart, song.duration));
         }
 
-        function playTrack(songID, timeStart, duration) {
+        async function playTrack(songID, timeStart, duration) {
             const spotifyUri = `spotify:track:${songID}`;
+            alert(`Playing track ${spotifyUri} from ${timeStart} for ${duration}ms`);
+            console.log(`Playing track ${spotifyUri} from ${timeStart} for ${duration}ms`);
 
-            player.play({
-                uris: [spotifyUri],
-                position_ms: timeStart
+            if (player) {
+                player.disconnect();
+            }
+
+            player = new Spotify.Player({
+                name: 'Web Playback SDK Quick Start Player',
+                getOAuthToken: cb => { cb(accessToken); },
+                volume: 0.5
+            });
+
+            player.addListener('ready', ({ device_id }) => {
+                alert(`Player is ready with Device ID ${device_id}`);
+                console.log(`Player is ready with Device ID ${device_id}`);
+                transferPlayback(device_id, spotifyUri, timeStart, duration);
+            });
+
+            player.addListener('not_ready', ({ device_id }) => {
+                alert(`Device ID has gone offline ${device_id}`);
+                console.log(`Device ID has gone offline ${device_id}`);
+            });
+
+            player.addListener('initialization_error', ({ message }) => {
+                alert(`Failed to initialize ${message}`);
+                console.error('Failed to initialize', message);
+            });
+
+            player.addListener('authentication_error', ({ message }) => {
+                alert(`Failed to authenticate ${message}`);
+                console.error('Failed to authenticate', message);
+            });
+
+            player.addListener('account_error', ({ message }) => {
+                alert(`Failed to validate Spotify account ${message}`);
+                console.error('Failed to validate Spotify account', message);
+            });
+
+            player.addListener('playback_error', ({ message }) => {
+                alert(`Failed to perform playback ${message}`);
+                console.error('Failed to perform playback', message);
+            });
+
+            player.connect();
+        }
+
+        async function transferPlayback(device_id, spotifyUri, timeStart, duration) {
+            alert(`Transferring playback to device ${device_id}`);
+            console.log(`Transferring playback to device ${device_id}`);
+            await fetch('https://api.spotify.com/v1/me/player', {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    device_ids: [device_id],
+                    play: true,
+                }),
             });
 
             setTimeout(() => {
-                player.pause();
-            }, duration);
+                fetch(`https://api.spotify.com/v1/me/player/play?device_id=${device_id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ uris: [spotifyUri], position_ms: timeStart }),
+                }).then(() => {
+                    setTimeout(() => {
+                        fetch(`https://api.spotify.com/v1/me/player/pause?device_id=${device_id}`, {
+                            method: 'PUT',
+                            headers: {
+                                'Authorization': `Bearer ${accessToken}`,
+                                'Content-Type': 'application/json',
+                            },
+                        }).then(() => {
+                            alert("Playback paused");
+                            console.log("Playback paused");
+                        });
+                    }, duration);
+                });
+            }, 1000); // Delay to ensure the device is ready
         }
-
-        window.onSpotifyWebPlaybackSDKReady = () => {
-            let player;
-
-            async function initializePlayer() {
-                const token = await getAccessToken();
-                player = new Spotify.Player({
-                    name: 'Web Playback SDK Quick Start Player',
-                    getOAuthToken: cb => { cb(token); },
-                    volume: 0.5
-                });
-
-                player.addListener('ready', ({ device_id }) => {
-                    console.log('Ready with Device ID', device_id);
-                });
-
-                player.addListener('not_ready', ({ device_id }) => {
-                    console.log('Device ID has gone offline', device_id);
-                });
-
-                player.connect();
-            }
-
-            initializePlayer();
-        };
 
         async function getAccessToken() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const code = urlParams.get('code');
-
-            if (code) {
-                try {
-                    const response = await fetch('https://accounts.spotify.com/api/token', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded'
-                        },
-                        body: `grant_type=authorization_code&code=${code}&redirect_uri=${encodeURIComponent(redirectUri)}&client_id=${clientId}&client_secret=${clientSecret}`
-                    });
-
-                    const data = await response.json();
-                    if (response.ok) {
-                        document.getElementById('accessToken').textContent = `Access Token: ${data.access_token}`;
-                        document.getElementById('errorMessage').textContent = '';
-                        return data.access_token;
-                    } else {
-                        document.getElementById('errorMessage').textContent = `Error: ${data.error_description}`;
-                        document.getElementById('accessToken').textContent = '';
-                    }
-                } catch (error) {
-                    document.getElementById('errorMessage').textContent = `Error: ${error.message}`;
-                    document.getElementById('accessToken').textContent = '';
-                }
-            }
-        }
-
-        window.onload = function() {
-            loadSongs();
-        };
-    </script>
-</body>
-</html>
+            const urlParams = new URLSearchParams(window.location.search
